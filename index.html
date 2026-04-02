@@ -344,6 +344,35 @@ function updateKpis() {
 let mapChart = null;
 let mapGeoData = null;
 
+// 初始化其他图表
+function initOtherCharts() {
+  // 人口排名
+  const popChart = echarts.init(document.getElementById('chart-pop'));
+  
+  // 城镇化率
+  const urbanChart = echarts.init(document.getElementById('chart-urban'));
+  
+  // 出生率vs死亡率
+  const rateChart = echarts.init(document.getElementById('chart-rate'));
+  
+  // 年龄结构
+  const ageChart = echarts.init(document.getElementById('chart-age'));
+  
+  // GDP排名
+  const gdpChart = echarts.init(document.getElementById('chart-gdp'));
+  
+  // 响应式
+  window.addEventListener('resize', () => {
+    popChart.resize();
+    urbanChart.resize();
+    rateChart.resize();
+    ageChart.resize();
+    gdpChart.resize();
+  });
+  
+  updateCharts();
+}
+
 async function initMap() {
   try {
     mapChart = echarts.init(document.getElementById('chart-map'));
@@ -409,11 +438,14 @@ async function initMap() {
     });
     
     window.addEventListener('resize', () => mapChart.resize());
-    updateAll();
   } catch (e) {
     console.error('Map load error:', e);
     document.getElementById('chart-map').innerHTML = '<div class="loading">地图加载失败</div>';
   }
+  
+  // 无论如何都初始化其他图表
+  initOtherCharts();
+  updateAll();
 }
 
 function updateCharts() {
