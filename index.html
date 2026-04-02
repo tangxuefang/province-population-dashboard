@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>省份人口统计 · 交互大屏</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/map/js/china.js"></script>
+  <style>
+    :root {
+      --bg-primary: #040d1f;
+      --bg-panel: #0a1f3f;
+      --bg-card: rgba(0,40,100,.8);
+      --accent: #00c8ff;
+      --accent-2: #0080ff;
+      --text-primary: #c8daf5;
+      --text-label: #5a8fc0;
+      --border: rgba(0,168,255,.25);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
+    }
+    body::before {
+      content: "";
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,168,255,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,168,255,.04) 1px, transparent 1px);
+      background-size: 50px 50px;
+      pointer-events: none; z-index: 0;
+    }
+    header {
+      position: relative; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px; height: 60px;
+      background: linear-gradient(90deg, rgba(0,60,120,.9) 0%, rgba(0,20,60,.95) 50%, rgba(0,60,120,.9) 100%);
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      font-size: 20px; font-weight: 700; letter-spacing: 4px;
+      background: linear-gradient(90deg, var(--accent), #fff, var(--accent));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .selected-info {
+      font-size: 14px;
+      color: var(--accent);
+      padding: 6px 16px;
+      background: rgba(0,200,255,.1);
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+    }
+    .header-right { display: flex; align-items: center; gap: 20px; }
+    .data-count { font-size: 12px; color: var(--text-label); }
+    main {
+      position: relative; z-index: 1;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 1fr 2fr 1fr;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+      height: calc(100vh - 76px);
+    }
+    .kpi-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+    }
+    .kpi-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 18px;
+      text-align: center;
+      transition: all .3s;
+    }
+    .kpi-card.highlight { border-color: var(--accent); box-shadow: 0 0 20px rgba(0,200,255,.3); }
+    .kpi-card .label { font-size: 11px; color: var(--text-label); letter-spacing: 1px; margin-bottom: 6px; }
+    .kpi-card .value { font-size: 24px; font-weight: 700; color: #fff; }
+    .kpi-card .unit { font-size: 11px; color: var(--text-label); }
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px;
+      display: flex; flex-direction: column;
+    }
+    .panel-title {
+      font-size: 12px; font-weight: 600; letter-spacing: 2px;
+      color: var(--accent);
+      margin-bottom: 10px; padding-left: 10px;
+      border-left: 3px solid var(--accent);
+    }
+    .chart-box { flex: 1; min-height: 0; }
+    .map-panel { grid-column: 2; grid-row: 2; }
+    .map-panel .chart-box { position: relative; }
+    .map-hint {
+      position: absolute;
+      bottom: 10px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: var(--text-label);
+      background: rgba(4,13,31,.8);
+      padding: 4px 12px;
+      border-radius: 12px;
+    }
+    .left-col { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 16px; }
+    .right-col { grid-column: 3; grid-row: 2; display: flex; flex-direction: column; gap: 16px; }
+    .table-row { grid-column: 1 / -1; grid-row: 3; }
+    .table-wrap { overflow-y: auto; flex: 1; max-height: 160px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead tr { background: rgba(0,80,160,.5); }
+    thead th { padding: 8px 10px; text-align: left; color: var(--accent); font-weight: 600; }
+    tbody tr { border-bottom: 1px solid rgba(0,100,200,.15); transition: background .2s; cursor: pointer; }
+    tbody tr:hover { background: rgba(0,100,200,.2); }
+    tbody tr.active { background: rgba(0,168,255,.2); }
+    tbody td { padding: 6px 10px; }
+    footer { text-align: center; padding: 8px; font-size: 11px; color: var(--text-label); }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: var(--text-label); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>省份人口统计大屏</h1>
+  <div class="header-right">
+    <div class="data-count" id="dataCount">数据加载中...</div>
+    <div class="selected-info" id="selectedInfo">点击地图选择省份</div>
+  </div>
+</header>
+
+<main>
+  <div class="kpi-row" id="kpi-row"></div>
+
+  <div class="left-col">
+    <div class="panel">
+      <div class="panel-title">人口对比（万人）</div>
+      <div class="chart-box" id="chart-pop"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">出生率 vs 死亡率</div>
+      <div class="chart-box" id="chart-rate"></div>
+    </div>
+  </div>
+
+  <div class="panel map-panel">
+    <div class="panel-title">全国分布地图</div>
+    <div class="chart-box" id="chart-map"></div>
+    <div class="map-hint">📍 点击省份查看详情</div>
+  </div>
+
+  <div class="right-col">
+    <div class="panel">
+      <div class="panel-title">城镇化率排名</div>
+      <div class="chart-box" id="chart-urban"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">人口结构分布</div>
+      <div class="chart-box" id="chart-age"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">人均GDP（万元）</div>
+      <div class="chart-box" id="chart-gdp"></div>
+    </div>
+  </div>
+
+  <div class="panel table-row">
+    <div class="panel-title">明细数据</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="table-head"></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer>Generated by Dashboard Generator · 数据来源: 2023年统计 · 共31个省份数据</footer>
+
+<script>
+const DATA = [{"id":7,"province_name":"广东省","province_code":"440000","year":2023,"total_population":12706,"birth_rate":8.12,"death_rate":5.3,"natural_growth_rate":2.82,"male_population":6650,"female_population":6056,"sex_ratio":109.8,"urban_population":9500,"rural_population":3206,"urbanization_rate":74.77,"age_0_14":2400,"age_15_64":8900,"age_65_plus":1406,"edu_university":2000,"gdp_per_capita":101000},{"id":8,"province_name":"山东省","province_code":"370000","year":2023,"total_population":10122,"birth_rate":6.7,"death_rate":7.5,"natural_growth_rate":-0.8,"male_population":5090,"female_population":5032,"sex_ratio":101.15,"urban_population":6560,"rural_population":3562,"urbanization_rate":64.81,"age_0_14":1700,"age_15_64":6600,"age_65_plus":1822,"edu_university":1500,"gdp_per_capita":92000},{"id":9,"province_name":"四川省","province_code":"510000","year":2023,"total_population":8368,"birth_rate":6.3,"death_rate":8.5,"natural_growth_rate":-2.2,"male_population":4200,"female_population":4168,"sex_ratio":100.7,"urban_population":4900,"rural_population":3468,"urbanization_rate":58.56,"age_0_14":1300,"age_15_64":5500,"age_65_plus":1568,"edu_university":1100,"gdp_per_capita":70000},{"id":10,"province_name":"辽宁省","province_code":"210000","year":2023,"total_population":4197,"birth_rate":4.2,"death_rate":9.1,"natural_growth_rate":-4.9,"male_population":2080,"female_population":2117,"sex_ratio":98.25,"urban_population":3060,"rural_population":1137,"urbanization_rate":72.91,"age_0_14":450,"age_15_64":2800,"age_65_plus":947,"edu_university":800,"gdp_per_capita":68000},{"id":11,"province_name":"浙江省","province_code":"330000","year":2023,"total_population":6627,"birth_rate":6.2,"death_rate":6.5,"natural_growth_rate":-0.3,"male_population":3450,"female_population":3177,"sex_ratio":108.59,"urban_population":4900,"rural_population":1727,"urbanization_rate":73.94,"age_0_14":900,"age_15_64":4700,"age_65_plus":1027,"edu_university":1400,"gdp_per_capita":125000},{"id":12,"province_name":"北京市","province_code":"110000","year":2023,"total_population":2184,"birth_rate":5.67,"death_rate":5.72,"natural_growth_rate":-0.05,"male_population":1110,"female_population":1074,"sex_ratio":103.35,"urban_population":1915,"rural_population":269,"urbanization_rate":87.68,"age_0_14":260,"age_15_64":1550,"age_65_plus":374,"edu_university":920,"gdp_per_capita":190000},{"id":13,"province_name":"河北省","province_code":"130000","year":2023,"total_population":7433,"birth_rate":5.72,"death_rate":7.08,"natural_growth_rate":-1.36,"male_population":3760,"female_population":3673,"sex_ratio":102.4,"urban_population":4600,"rural_population":2833,"urbanization_rate":62.0,"age_0_14":1300,"age_15_64":4800,"age_65_plus":1333,"edu_university":1100,"gdp_per_capita":57000},{"id":14,"province_name":"河南省","province_code":"410000","year":2023,"total_population":9815,"birth_rate":7.42,"death_rate":7.5,"natural_growth_rate":-0.08,"male_population":5000,"female_population":4815,"sex_ratio":103.8,"urban_population":5700,"rural_population":4115,"urbanization_rate":58.1,"age_0_14":1800,"age_15_64":6300,"age_65_plus":1715,"edu_university":1400,"gdp_per_capita":62000},{"id":15,"province_name":"湖北省","province_code":"420000","year":2023,"total_population":5838,"birth_rate":6.08,"death_rate":7.17,"natural_growth_rate":-1.09,"male_population":2980,"female_population":2858,"sex_ratio":104.3,"urban_population":3780,"rural_population":2058,"urbanization_rate":64.7,"age_0_14":900,"age_15_64":3800,"age_65_plus":1138,"edu_university":1000,"gdp_per_capita":89000},{"id":16,"province_name":"湖南省","province_code":"430000","year":2023,"total_population":6568,"birth_rate":6.23,"death_rate":8.19,"natural_growth_rate":-1.96,"male_population":3370,"female_population":3198,"sex_ratio":105.4,"urban_population":3960,"rural_population":2608,"urbanization_rate":60.3,"age_0_14":1100,"age_15_64":4200,"age_65_plus":1268,"edu_university":950,"gdp_per_capita":73000},{"id":17,"province_name":"江苏省","province_code":"320000","year":2023,"total_population":8515,"birth_rate":5.65,"death_rate":7.04,"natural_growth_rate":-1.39,"male_population":4300,"female_population":4215,"sex_ratio":102.0,"urban_population":6330,"rural_population":2185,"urbanization_rate":74.4,"age_0_14":1300,"age_15_64":5600,"age_65_plus":1615,"edu_university":1800,"gdp_per_capita":143000},{"id":18,"province_name":"安徽省","province_code":"340000","year":2023,"total_population":6121,"birth_rate":6.54,"death_rate":8.02,"natural_growth_rate":-1.48,"male_population":3100,"female_population":3021,"sex_ratio":102.6,"urban_population":3680,"rural_population":2441,"urbanization_rate":60.2,"age_0_14":1000,"age_15_64":4000,"age_65_plus":1121,"edu_university":900,"gdp_per_capita":71000},{"id":19,"province_name":"福建省","province_code":"350000","year":2023,"total_population":4188,"birth_rate":6.81,"death_rate":6.52,"natural_growth_rate":0.29,"male_population":2150,"female_population":2038,"sex_ratio":105.5,"urban_population":2935,"rural_population":1253,"urbanization_rate":70.1,"age_0_14":650,"age_15_64":2800,"age_65_plus":738,"edu_university":750,"gdp_per_capita":126000},{"id":20,"province_name":"江西省","province_code":"360000","year":2023,"total_population":4528,"birth_rate":7.19,"death_rate":6.93,"natural_growth_rate":0.26,"male_population":2320,"female_population":2208,"sex_ratio":105.1,"urban_population":2810,"rural_population":1718,"urbanization_rate":62.1,"age_0_14":750,"age_15_64":3000,"age_65_plus":778,"edu_university":650,"gdp_per_capita":66000},{"id":21,"province_name":"云南省","province_code":"530000","year":2023,"total_population":4673,"birth_rate":7.87,"death_rate":7.32,"natural_growth_rate":0.55,"male_population":2400,"female_population":2273,"sex_ratio":105.6,"urban_population":2415,"rural_population":2258,"urbanization_rate":51.7,"age_0_14":800,"age_15_64":3000,"age_65_plus":873,"edu_university":550,"gdp_per_capita":54000},{"id":22,"province_name":"贵州省","province_code":"520000","year":2023,"total_population":3856,"birth_rate":10.0,"death_rate":6.02,"natural_growth_rate":3.98,"male_population":2000,"female_population":1856,"sex_ratio":107.8,"urban_population":2095,"rural_population":1761,"urbanization_rate":54.3,"age_0_14":750,"age_15_64":2500,"age_65_plus":606,"edu_university":400,"gdp_per_capita":53000},{"id":23,"province_name":"陕西省","province_code":"610000","year":2023,"total_population":3956,"birth_rate":6.45,"death_rate":7.08,"natural_growth_rate":-0.63,"male_population":2020,"female_population":1936,"sex_ratio":104.3,"urban_population":2550,"rural_population":1406,"urbanization_rate":64.5,"age_0_14":600,"age_15_64":2600,"age_65_plus":756,"edu_university":650,"gdp_per_capita":82000},{"id":24,"province_name":"甘肃省","province_code":"620000","year":2023,"total_population":2465,"birth_rate":8.47,"death_rate":7.55,"natural_growth_rate":0.92,"male_population":1260,"female_population":1205,"sex_ratio":104.6,"urban_population":1335,"rural_population":1130,"urbanization_rate":54.2,"age_0_14":450,"age_15_64":1600,"age_65_plus":415,"edu_university":300,"gdp_per_capita":45000},{"id":25,"province_name":"青海省","province_code":"630000","year":2023,"total_population":594,"birth_rate":10.6,"death_rate":7.01,"natural_growth_rate":3.59,"male_population":305,"female_population":289,"sex_ratio":105.5,"urban_population":365,"rural_population":229,"urbanization_rate":61.4,"age_0_14":100,"age_15_64":400,"age_65_plus":94,"edu_university":80,"gdp_per_capita":60000},{"id":26,"province_name":"吉林省","province_code":"220000","year":2023,"total_population":2339,"birth_rate":4.33,"death_rate":8.33,"natural_growth_rate":-4.0,"male_population":1170,"female_population":1169,"sex_ratio":100.1,"urban_population":1490,"rural_population":849,"urbanization_rate":63.7,"age_0_14":280,"age_15_64":1600,"age_65_plus":459,"edu_university":400,"gdp_per_capita":56000},{"id":27,"province_name":"黑龙江省","province_code":"230000","year":2023,"total_population":3062,"birth_rate":3.34,"death_rate":9.32,"natural_growth_rate":-5.98,"male_population":1530,"female_population":1532,"sex_ratio":99.9,"urban_population":1990,"rural_population":1072,"urbanization_rate":65.0,"age_0_14":350,"age_15_64":2100,"age_65_plus":612,"edu_university":450,"gdp_per_capita":54000},{"id":28,"province_name":"内蒙古自治区","province_code":"150000","year":2023,"total_population":2401,"birth_rate":5.58,"death_rate":7.32,"natural_growth_rate":-1.74,"male_population":1220,"female_population":1181,"sex_ratio":103.3,"urban_population":1650,"rural_population":751,"urbanization_rate":68.8,"age_0_14":350,"age_15_64":1650,"age_65_plus":401,"edu_university":380,"gdp_per_capita":96000},{"id":29,"province_name":"新疆维吾尔自治区","province_code":"650000","year":2023,"total_population":2587,"birth_rate":6.88,"death_rate":6.68,"natural_growth_rate":0.2,"male_population":1310,"female_population":1277,"sex_ratio":102.6,"urban_population":1490,"rural_population":1097,"urbanization_rate":57.6,"age_0_14":450,"age_15_64":1750,"age_65_plus":387,"edu_university":350,"gdp_per_capita":68000},{"id":30,"province_name":"广西壮族自治区","province_code":"450000","year":2023,"total_population":5013,"birth_rate":8.12,"death_rate":6.79,"natural_growth_rate":1.33,"male_population":2600,"female_population":2413,"sex_ratio":107.8,"urban_population":2805,"rural_population":2208,"urbanization_rate":56.0,"age_0_14":900,"age_15_64":3200,"age_65_plus":913,"edu_university":600,"gdp_per_capita":54000},{"id":31,"province_name":"海南省","province_code":"460000","year":2023,"total_population":1043,"birth_rate":8.6,"death_rate":6.19,"natural_growth_rate":2.41,"male_population":540,"female_population":503,"sex_ratio":107.4,"urban_population":640,"rural_population":403,"urbanization_rate":61.5,"age_0_14":180,"age_15_64":700,"age_65_plus":163,"edu_university":150,"gdp_per_capita":73000},{"id":32,"province_name":"上海市","province_code":"310000","year":2023,"total_population":2487,"birth_rate":4.56,"death_rate":5.96,"natural_growth_rate":-1.4,"male_population":1250,"female_population":1237,"sex_ratio":101.1,"urban_population":2220,"rural_population":267,"urbanization_rate":89.3,"age_0_14":250,"age_15_64":1700,"age_65_plus":537,"edu_university":950,"gdp_per_capita":183000},{"id":33,"province_name":"天津市","province_code":"120000","year":2023,"total_population":1364,"birth_rate":5.14,"death_rate":5.93,"natural_growth_rate":-0.79,"male_population":690,"female_population":674,"sex_ratio":102.4,"urban_population":1158,"rural_population":206,"urbanization_rate":84.9,"age_0_14":150,"age_15_64":950,"age_65_plus":264,"edu_university":380,"gdp_per_capita":118000},{"id":34,"province_name":"重庆市","province_code":"500000","year":2023,"total_population":3191,"birth_rate":6.35,"death_rate":7.08,"natural_growth_rate":-0.73,"male_population":1630,"female_population":1561,"sex_ratio":104.4,"urban_population":2250,"rural_population":941,"urbanization_rate":70.6,"age_0_14":480,"age_15_64":2150,"age_65_plus":561,"edu_university":500,"gdp_per_capita":95000},{"id":35,"province_name":"西藏自治区","province_code":"540000","year":2023,"total_population":364,"birth_rate":13.1,"death_rate":5.17,"natural_growth_rate":7.93,"male_population":185,"female_population":179,"sex_ratio":103.4,"urban_population":136,"rural_population":228,"urbanization_rate":37.4,"age_0_14":70,"age_15_64":250,"age_65_plus":44,"edu_university":35,"gdp_per_capita":62000},{"id":36,"province_name":"宁夏回族自治区","province_code":"640000","year":2023,"total_population":728,"birth_rate":9.95,"death_rate":6.19,"natural_growth_rate":3.76,"male_population":370,"female_population":358,"sex_ratio":103.4,"urban_population":475,"rural_population":253,"urbanization_rate":65.4,"age_0_14":130,"age_15_64":480,"age_65_plus":118,"edu_university":100,"gdp_per_capita":67000},{"id":37,"province_name":"山西省","province_code":"140000","year":2023,"total_population":3483,"birth_rate":6.26,"death_rate":7.12,"natural_growth_rate":-0.86,"male_population":1770,"female_population":1713,"sex_ratio":103.3,"urban_population":2235,"rural_population":1248,"urbanization_rate":64.2,"age_0_14":550,"age_15_64":2300,"age_65_plus":633,"edu_university":500,"gdp_per_capita":68000}];
+
+const TIP = {
+  backgroundColor: 'rgba(0,20,60,.92)',
+  borderColor: 'rgba(0,168,255,.4)',
+  textStyle: { color: '#c8daf5', fontSize: 12 },
+};
+const SPLIT_LINE = { lineStyle: { color: 'rgba(0,168,255,.08)' } };
+const AXIS_LINE = { lineStyle: { color: 'rgba(0,168,255,.2)' } };
+const AXIS_LABEL = { color: '#5a8fc0', fontSize: 11 };
+
+let selectedProvince = null;
+
+document.getElementById('dataCount').textContent = '共 ' + DATA.length + ' 个省份数据';
+
+function updateSelectedInfo() {
+  document.getElementById('selectedInfo').textContent = selectedProvince ? '📍 当前查看: ' + selectedProvince : '📍 点击地图选择省份';
+}
+
+function initMap() {
+  const chart = echarts.init(document.getElementById('chart-map'));
+  
+  const mapData = DATA.map(d => ({
+    name: d.province_name,
+    value: d.total_population
+  }));
+
+  const option = {
+    tooltip: {
+      ...TIP,
+      trigger: 'item',
+      formatter: p => p.data ? `${p.name}<br/>总人口: ${p.data.value}万人` : (p.name ? `${p.name}<br/><span style="color:#888">暂无数据</span>` : '')
+    },
+    visualMap: {
+      min: 300,
+      max: 13000,
+      text: ['高', '低'],
+      textStyle: { color: '#5a8fc0' },
+      left: 20,
+      bottom: 20,
+      inRange: { color: ['#0a2f5c', '#0080ff', '#00c8ff'] },
+      calculable: true
+    },
+    series: [{
+      type: 'map',
+      map: 'china',
+      roam: true,
+      zoom: 1.2,
+      scaleLimit: { min: 0.8, max: 3 },
+      emphasis: {
+        itemStyle: { areaColor: '#00c8ff', shadowBlur: 20, shadowColor: 'rgba(0,200,255,0.8)' },
+        label: { show: true, color: '#fff', fontSize: 11 }
+      },
+      select: { itemStyle: { areaColor: '#00c8ff' }, label: { show: true } },
+      data: mapData
+    }]
+  };
+
+  chart.setOption(option);
+  chart.on('click', params => {
+    if (params.data) {
+      selectedProvince = params.name;
+      updateAllCharts();
+    }
+  });
+  window.addEventListener('resize', () => chart.resize());
+}
+
+function renderKPI() {
+  const row = document.getElementById('kpi-row');
+  const kpis = [
+    { label: '总人口', field: 'total_population', unit: '万人', formatter: v => Math.round(v).toLocaleString() },
+    { label: '平均出生率', field: 'birth_rate', unit: '‰', formatter: v => v.toFixed(2) },
+    { label: '平均城镇化率', field: 'urbanization_rate', unit: '%', formatter: v => v.toFixed(1) },
+    { label: '平均人均GDP', field: 'gdp_per_capita', unit: '元', formatter: v => (v/10000).toFixed(1) + '万' },
+    { label: '省份数量', field: 'count', unit: '个', formatter: v => v }
+  ];
+
+  row.innerHTML = kpis.map(k => {
+    let val;
+    if (k.field === 'count') val = DATA.length;
+    else if (selectedProvince) {
+      const d = DATA.find(r => r.province_name === selectedProvince);
+      val = d ? d[k.field] : '-';
+    } else {
+      const vals = DATA.map(r => r[k.field]).filter(v => v != null);
+      val = vals.reduce((a,b) => a+b, 0) / vals.length;
+    }
+    return `<div class="kpi-card ${selectedProvince ? 'highlight' : ''}">
+      <div class="label">${selectedProvince ? selectedProvince : '全国'}/${k.label}</div>
+      <div class="value">${k.formatter(val)}</div>
+      <div class="unit">${k.unit}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderPopChart() {
+  const chart = echarts.init(document.getElementById('chart-pop'));
+  const data = selectedProvince ? DATA.filter(r => r.province_name === selectedProvince) : DATA;
+  const sorted = [...data].sort((a,b) => b.total_population - a.total_population);
+
+  chart.setOption({
+    tooltip: { ...TIP, trigger: 'axis' },
+    grid: { top: 10, right: 10, bottom: 30, left: 60 },
+    xAxis: { type: 'value', axisLine: AXIS_LINE, splitLine: SPLIT_LINE, axisLabel: AXIS_LABEL },
+    yAxis: { type: 'category', data: sorted.map(r => r.province_name), axisLine: AXIS_LINE, axisLabel: AXIS_LABEL },
+    series: [{
+      type: 'bar',
+      data: sorted.map(r => ({ value: r.total_population, itemStyle: { color: r.province_name === selectedProvince ? '#00c8ff' : '#0080ff', borderRadius: [0, 4, 4, 0] } })),
+      barMaxWidth: 16,
+      label: { show: true, position: 'right', formatter: '{c}', color: '#5a8fc0', fontSize: 10 }
+    }]
+  });
+  chart.resize();
+}
+
+function renderRateChart() {
+  const chart = echarts.init(document.getElementById('chart-rate'));
+  const data = selectedProvince ? DATA.filter(r => r.province_name === selectedProvince) : DATA;
+
+  chart.setOption({
+    tooltip: { ...TIP, trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['出生率', '死亡率'], textStyle: { color: '#5a8fc0' }, top: 0 },
+    grid: { top: 30, right: 10, bottom: 30, left: 40 },
+    xAxis: { type: 'category', data: data.map(r => r.province_name), axisLine: AXIS_LINE, axisLabel: { ...AXIS_LABEL, rotate: 30 } },
+    yAxis: { type: 'value', name: '‰', axisLine: AXIS_LINE, splitLine: SPLIT_LINE, axisLabel: AXIS_LABEL },
+    series: [
+      { name: '出生率', type: 'bar', data: data.map(r => ({ value: r.birth_rate, itemStyle: { color: '#00c8ff', borderRadius: [4, 4, 0, 0] } })), barMaxWidth: 12 },
+      { name: '死亡率', type: 'bar', data: data.map(r => ({ value: r.death_rate, itemStyle: { color: '#ff4060', borderRadius: [4, 4, 0, 0] } })), barMaxWidth: 12 }
+    ]
+  });
+  chart.resize();
+}
+
+function renderUrbanChart() {
+  const chart = echarts.init(document.getElementById('chart-urban'));
+  const data = selectedProvince ? DATA.filter(r => r.province_name === selectedProvince) : DATA;
+  const sorted = [...data].sort((a,b) => b.urbanization_rate - a.urbanization_rate);
+
+  chart.setOption({
+    tooltip: { ...TIP, trigger: 'axis' },
+    grid: { top: 10, right: 40, bottom: 30, left: 60 },
+    xAxis: { type: 'value', max: 100, axisLine: AXIS_LINE, splitLine: SPLIT_LINE, axisLabel: AXIS_LABEL },
+    yAxis: { type: 'category', data: sorted.map(r => r.province_name), axisLine: AXIS_LINE, axisLabel: AXIS_LABEL },
+    series: [{
+      type: 'bar',
+      data: sorted.map(r => ({ value: r.urbanization_rate, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: r.urbanization_rate > 70 ? '#00e0a0' : '#0080ff' }, { offset: 1, color: '#00c8ff' }] }, borderRadius: [0, 4, 4, 0] } })),
+      barMaxWidth: 14,
+      label: { show: true, position: 'right', formatter: '{c}%', color: '#5a8fc0', fontSize: 10 }
+    }]
+  });
+  chart.resize();
+}
+
+function renderAgeChart() {
+  const chart = echarts.init(document.getElementById('chart-age'));
+  const data = selectedProvince ? DATA.filter(r => r.province_name === selectedProvince) : DATA;
+  const totals = { '0-14岁': 0, '15-64岁': 0, '65岁以上': 0 };
+  data.forEach(d => { totals['0-14岁'] += d.age_0_14 || 0; totals['15-64岁'] += d.age_15_64 || 0; totals['65岁以上'] += d.age_65_plus || 0; });
+
+  chart.setOption({
+    tooltip: { ...TIP, trigger: 'item', formatter: p => `${p.name}<br/>${Math.round(p.value)}万人<br/>占比: ${p.percent}%` },
+    legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { color: '#5a8fc0' } },
+    series: [{
+      type: 'pie', radius: ['35%', '65%'], center: ['35%', '50%'],
+      data: [
+        { name: '0-14岁', value: Math.round(totals['0-14岁']), itemStyle: { color: '#00c8ff' } },
+        { name: '15-64岁', value: Math.round(totals['15-64岁']), itemStyle: { color: '#0080ff' } },
+        { name: '65岁以上', value: Math.round(totals['65岁以上']), itemStyle: { color: '#ff9020' } }
+      ],
+      label: { show: false },
+      emphasis: { scale: true, scaleSize: 8 }
+    }]
+  });
+  chart.resize();
+}
+
+function renderGdpChart() {
+  const chart = echarts.init(document.getElementById('chart-gdp'));
+  const data = selectedProvince ? DATA.filter(r => r.province_name === selectedProvince) : DATA;
+  const sorted = [...data].sort((a,b) => b.gdp_per_capita - a.gdp_per_capita);
+
+  chart.setOption({
+    tooltip: { ...TIP, trigger: 'axis', formatter: p => `${p.name}<br/>人均GDP: ${(p.value/10000).toFixed(1)}万元` },
+    grid: { top: 10, right: 10, bottom: 30, left: 60 },
+    xAxis: { type: 'value', axisLine: AXIS_LINE, splitLine: SPLIT_LINE, axisLabel: AXIS_LABEL },
+    yAxis: { type: 'category', data: sorted.map(r => r.province_name), axisLine: AXIS_LINE, axisLabel: AXIS_LABEL },
+    series: [{
+      type: 'bar',
+      data: sorted.map(r => ({ value: r.gdp_per_capita, itemStyle: { color: { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: '#ff9020' }, { offset: 1, color: '#ff4060' }] }, borderRadius: [0, 4, 4, 0] } })),
+      barMaxWidth: 14,
+      label: { show: true, position: 'right', formatter: p => (p.value/10000).toFixed(0), color: '#5a8fc0', fontSize: 10 }
+    }]
+  });
+  chart.resize();
+}
+
+function renderTable() {
+  const thead = document.getElementById('table-head');
+  const tbody = document.getElementById('table-body');
+  const cols = [
+    { label: '省份', field: 'province_name' },
+    { label: '总人口(万)', field: 'total_population' },
+    { label: '出生率‰', field: 'birth_rate' },
+    { label: '死亡率‰', field: 'death_rate' },
+    { label: '城镇化率%', field: 'urbanization_rate' },
+    { label: '人均GDP(元)', field: 'gdp_per_capita' }
+  ];
+
+  thead.innerHTML = `<tr>${cols.map(c => `<th>${c.label}</th>`).join('')}</tr>`;
+  tbody.innerHTML = DATA.map((r, i) => `<tr class="${r.province_name === selectedProvince ? 'active' : ''}" onclick="selectRow('${r.province_name}')">${cols.map(c => `<td>${r[c.field] != null ? r[c.field] : '-'}</td>`).join('')}</tr>`).join('');
+}
+
+function selectRow(name) {
+  selectedProvince = name;
+  updateAllCharts();
+}
+
+function updateAllCharts() {
+  updateSelectedInfo();
+  renderKPI();
+  renderPopChart();
+  renderRateChart();
+  renderUrbanChart();
+  renderAgeChart();
+  renderGdpChart();
+  renderTable();
+}
+
+initMap();
+updateAllCharts();
+
+window.addEventListener('resize', () => {
+  renderPopChart();
+  renderRateChart();
+  renderUrbanChart();
+  renderAgeChart();
+  renderGdpChart();
+});
+</script>
+</body>
+</html>
