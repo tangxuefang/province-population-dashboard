@@ -393,8 +393,8 @@ async function initMap() {
   try {
     mapChart = echarts.init(document.getElementById('chart-map'));
     
-    // 加载GeoJSON数据
-    const resp = await fetch('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json');
+    // 加载GeoJSON数据 - 使用同源避免CORS问题
+    const resp = await fetch('./china.json');
     const geoJson = await resp.json();
     mapGeoData = geoJson;
     
